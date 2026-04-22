@@ -126,11 +126,41 @@
           ?.split('=')[1];
       }
 
-      const fbclid = new URLSearchParams(window.location.search).get('fbclid');
+      const urlParams = new URLSearchParams(window.location.search);
+
+      const fbclid = urlParams.get('fbclid');
       if (fbclid) {
         const fbc = `fb.1.${Date.now()}.${fbclid}`;
         document.cookie = `_fbc=${fbc}; path=/; max-age=7776000`; // 90 días
       }
+
+      function persistUtmContent(value) {
+        if (!value) return;
+        try {
+          sessionStorage.setItem('utm_content', value);
+        } catch {}
+        document.cookie = `utm_content=${encodeURIComponent(value)}; path=/; max-age=7776000`;
+      }
+
+      function resolveUtmContent() {
+        const fromUrl = (urlParams.get('utm_content') || '').trim();
+        if (fromUrl) return fromUrl;
+        try {
+          const fromSession = sessionStorage.getItem('utm_content');
+          if (fromSession) return fromSession;
+        } catch {}
+        const fromCookie = obtenerCookie('utm_content');
+        if (fromCookie) {
+          try {
+            return decodeURIComponent(fromCookie);
+          } catch {
+            return fromCookie;
+          }
+        }
+        return '';
+      }
+
+      persistUtmContent((urlParams.get('utm_content') || '').trim());
 
       const mensajesAleatorios = (nombre) => [
         `¡Buenas! Soy ${nombre}. Vi el anuncio y quiero crear un usuario.`,
@@ -145,17 +175,22 @@
         `Buenas, mi nombre es ${nombre}. ¿Me pueden dar información para comenzar?`,
       ];
 
-      async function guardarLeadsYObtenerCodigoYNumero(fbc, fbp) {
+      async function guardarLeadsYObtenerCodigoYNumero(fbc, fbp, adCode) {
         try {
-          const response = await fetch(API_URL, {
+          const url = adCode
+            ? `${API_URL}?utm_content=${encodeURIComponent(adCode)}`
+            : API_URL;
+          const payload = {
+            fbc,
+            fbp,
+            userAgent: navigator.userAgent,
+            metaPixelId: META_PIXEL_ID,
+          };
+          if (adCode) payload.adCode = adCode;
+          const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              fbc,
-              fbp,
-              userAgent: navigator.userAgent,
-              metaPixelId: META_PIXEL_ID,
-            }),
+            body: JSON.stringify(payload),
           });
 
           if (response.status !== 201) {
@@ -192,9 +227,10 @@
           try {
             const fbp = obtenerCookie('_fbp') ?? null;
             const fbc = obtenerCookie('_fbc') ?? null;
+            const adCode = resolveUtmContent();
 
             const { code, number, includeCode } =
-              await guardarLeadsYObtenerCodigoYNumero(fbc, fbp);
+              await guardarLeadsYObtenerCodigoYNumero(fbc, fbp, adCode);
 
             const opciones = mensajesAleatorios(clientName);
             const mensajeBase =
